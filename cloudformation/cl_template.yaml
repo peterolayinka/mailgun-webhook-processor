@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  AWSRegion:
+    Type: String
+    Description: AWS region 
+    Default: us-east-1
+  SigningKey:
+    Type: String
+    Description: MailGun Webhook signing key (Remember to change the default key).
+    Default: password
+  S3BucketName:
+    Type: String
+    Description: Name of s3 bucket where event data is stored.
+    Default: mailgun-webhook-storage
+  APIStageName:
+    Type: String
+    Description: Stage name for the API
+    Default: test
+  StorageService:
+    Type: String
+    Description: Enter supported means of storage.
+    Default: s3
+  NotificationService:
+    Type: String
+    Description: Enter supported means of notification.
+    Default: sns
+  ReceipientEmail:
+    Type: String
+    Description: Enter email address for the notification service.
+    Default: johndoe@example.com
+Resources:
+  MailGunWebHookPolicies:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          -
+            Sid: BasicAcessForWebhookProcess
+            Effect: Allow
+            Action:
+              - sns:Publish
+              - s3:PutObject
+              - cloudwatch:PutMetricData
+            Resource: "*"
+      Roles:
+        - !Ref MailgunWebhookLambdaRole
+  MailgunWebhookLambdaRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+  MailgunWebhookStorage:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref S3BucketName
+  MailgunWebhookNotification:
+    Type: 'AWS::SNS::Topic'
+    Properties: 
+      TopicName: "MailgunWebhookNotification"
+      Subscription:
+        - Endpoint: !Ref ReceipientEmail
+          Protocol: "email"
+  MailgunWebhookProcessor:
+    Type: 'AWS::Lambda::Function'
+    Properties: 
+      Description: Invoke a function during stack creation.
+      Runtime: nodejs16.x
+      Role: !GetAtt MailgunWebhookLambdaRole.Arn
+      Handler: index.handler
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref MailgunWebhookStorage
+          REGION: !Ref AWSRegion
+          SIGNING_KEY: !Ref SigningKey
+          STORAGE_SERVICE: !Ref StorageService
+          NOTIFICATION_SERVICE: !Ref NotificationService
+          SNS_ARN: !Ref MailgunWebhookNotification
+      Code:
+        ZipFile: | 
+          exports.handler =  async function(event, context) {
+              const body = "Nothing to see yet. Deployment missing, contact an admin."
+              const statusCode = 400
+              const headers = {
+                "Content-Type": "application/json",
+              }
+              
+              return  {
+                statusCode,
+                body,
+                headers,
+              }
+          }
+      TracingConfig:
+        Mode: Active
+      Timeout: 5
+    DependsOn:
+      - MailgunWebhookLambdaRole
+  MGWebhookEndpoint:
+    Type: 'AWS::ApiGateway::RestApi'
+    Properties:
+      Description: A test API
+      Name: MGWebhookEndpoint
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+    DependsOn:
+      - MailgunWebhookProcessor
+  MGRequestValidator:
+    Type: 'AWS::ApiGateway::RequestValidator'
+    Properties: 
+      Name: MGRequestValidator
+      RestApiId: !Ref MGWebhookEndpoint
+      ValidateRequestBody: true
+      ValidateRequestParameters: true
+  MGWebhookRequestModel:
+    Type: 'AWS::ApiGateway::Model'
+    Properties: 
+      RestApiId: !Ref MGWebhookEndpoint
+      ContentType: application/json
+      Description: Schema for Mail gun webhook
+      Name: RequestModel
+      Schema:
+        $schema: 'http://json-schema.org/draft-04/schema#'
+        title: mailgun-webook
+        type: object
+        required:
+        - signature
+        - event-data
+        properties:
+          signature:
+            type: object
+            properties:
+              timestamp:
+                type: string
+              token:
+                type: string
+              signature:
+                type: string
+          event-data:
+            type: object
+            properties:
+              event:
+                type: string
+              timestamp:
+                type: number
+              id:
+                type: string
+  MGWebhookPostMethod:
+    Type: 'AWS::ApiGateway::Method'
+    Properties:
+      RestApiId: !Ref MGWebhookEndpoint
+      ResourceId: !GetAtt 
+        - MGWebhookEndpoint
+        - RootResourceId
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub >-
+          arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MailgunWebhookProcessor.Arn}/invocations
+      RequestValidatorId: !Ref MGRequestValidator
+      RequestModels: 
+        application/json: "RequestModel"
+    DependsOn:
+    - MailgunWebhookProcessor
+  MGLambdaApiGatewayInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MailgunWebhookProcessor
+      Action: lambda:InvokeFunction
+      Principal:  apigateway.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: 
+        Fn::Join:
+        - ''
+        - - 'arn:aws:execute-api:'
+          - Ref: AWS::Region
+          - ":"
+          - Ref: AWS::AccountId
+          - ":"
+          - Ref: MGWebhookEndpoint
+          - "/*/*/*"
+  apiGatewayDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - MGWebhookPostMethod
+    Properties:
+      RestApiId: !Ref MGWebhookEndpoint
+      StageName: !Ref APIStageName
+
+
+Outputs:
+  apiGatewayInvokeURL:
+    Value: !Sub https://${MGWebhookEndpoint}.execute-api.${AWS::Region}.amazonaws.com/${APIStageName}
