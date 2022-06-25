@@ -35,6 +35,9 @@ The resources beolow are required for a successful deployment of this code to AW
 * click deploy on the lambda function
 * VOILA!
 * You can now test the endpoint seen in the output section.
+* Ensure to change the event id for multiple test
+* Verify you got the email from SNS
+* Verify the data is stored in the created S3
 
 ## Sample payload to test API endpoint
 

@@ -8,8 +8,9 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "peterolayinka",
-  "license": "ISC",
+  "license": "MIT",
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.101",
     "@types/node": "^18.0.0",
     "ts-node": "^10.8.1",
     "tslint": "^6.1.3",

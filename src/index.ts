@@ -4,6 +4,7 @@ import {
   Signature,
   EventContent
 } from "./types"
+import { Context, APIGatewayProxyResult, APIGatewayEvent } from "aws-lambda"
 
 
 AWS.config.update({
@@ -11,7 +12,7 @@ AWS.config.update({
 });
 
 class WebhookProcessor {
-  request: any;
+  request: APIGatewayEvent;
   provider: string;
   event: EventData;
   signature: Signature;
@@ -45,7 +46,7 @@ class WebhookProcessor {
 
   async processWebHook() {
     let body: string;
-    let statusCode = "200";
+    let statusCode = 200;
     const headers = {
       "Content-Type": "application/json",
     };
@@ -73,13 +74,13 @@ class WebhookProcessor {
             throw new Error(`Unsupported method "${this.request.httpMethod}"`);
         }
       } catch (err) {
-        statusCode = "400";
+        statusCode = 400;
         body = err.message;
       } finally {
         body = JSON.stringify(body);
       }
     } else {
-      statusCode = "400";
+      statusCode = 400;
       body = "Unauthorised request";
     }
 
@@ -179,10 +180,9 @@ class WebhookProcessor {
   }
 }
 
-const handler = async (event, context) => {
+const handler = async (event: EventContent, context: Context): Promise<APIGatewayProxyResult> => {
   const mailgun = new WebhookProcessor("Mailgun", event);
-  const processResponse = await mailgun.processWebHook();
-  return processResponse;
+  return mailgun.processWebHook();
 };
 
 exports.handler = handler;
