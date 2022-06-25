@@ -60,6 +60,8 @@ The resources beolow are required for a successful deployment of this code to AW
 
 ## Snippet to generate valid mailgun signature
 
+Please see the test signingKey in the example evnironment file
+
 ``` javascript
   const encodedToken = crypto
       .createHmac("sha256", signingKey)
